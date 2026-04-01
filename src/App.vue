@@ -48,35 +48,11 @@ async function initWxSdk() {
     timestamp: data.timestamp,
     nonceStr: data.nonceStr,
     signature: data.signature,
-    jsApiList: [
-      'checkJsApi',
-      'miniProgram.navigateTo',
-      'miniProgram.redirectTo',
-      'miniProgram.reLaunch',
-      'miniProgram.switchTab',
-    ],
+    jsApiList: ['checkJsApi', 'miniProgram.navigateTo', 'miniProgram.redirectTo'],
   })
 }
 
-/** 小程序首页（与 xa_card_mini pages.json tabBar 一致） */
-const MINI_HOME_PATH = '/pages/index/index'
 const MINI_LOGIN_PATH = '/pages-sub/login/index'
-
-/** tabBar 页面不可使用 navigateTo/redirectTo，需 reLaunch（可带 query）或 switchTab（不可带参） */
-const TAB_BAR_PATHS = [
-  '/pages/index/index',
-  '/pages/serve/index',
-  '/pages/shop/index',
-  '/pages/mine/index',
-]
-
-function normalizeMiniPath(path) {
-  if (!path) {
-    return ''
-  }
-  const pathOnly = path.split('?')[0]
-  return pathOnly.startsWith('/') ? pathOnly : `/${pathOnly}`
-}
 
 function miniProgramGo(url) {
   if (wx?.miniProgram?.redirectTo) {
@@ -90,36 +66,12 @@ function miniProgramGo(url) {
   return false
 }
 
-function redirectToMiniProgramHome(dataToken) {
-  const raw = queryParams.value.get('redirectPath') || MINI_HOME_PATH
-  const base = normalizeMiniPath(raw) || MINI_HOME_PATH
-  const queryInPath = raw.includes('?') ? raw.slice(raw.indexOf('?')) : ''
-  const pathWithQuery = queryInPath ? `${base}${queryInPath}` : base
-  const connector = pathWithQuery.includes('?') ? '&' : '?'
-  const url = `${pathWithQuery}${connector}dataToken=${encodeURIComponent(dataToken)}`
-
-  if (TAB_BAR_PATHS.includes(base)) {
-    if (wx?.miniProgram?.reLaunch) {
-      wx.miniProgram.reLaunch({ url })
-      status.value = '授权成功，正在返回小程序...'
-      return true
-    }
-    if (wx?.miniProgram?.switchTab) {
-      wx.miniProgram.switchTab({ url: base })
-      status.value = '授权成功，正在返回小程序（当前环境无法携带 dataToken，请从首页重新发起授权）。'
-      return true
-    }
-  }
-
-  if (miniProgramGo(url)) {
-    status.value = '授权成功，正在返回小程序...'
-    return true
-  }
-  return false
-}
-
-function redirectToMiniProgramLogin() {
-  return miniProgramGo(MINI_LOGIN_PATH)
+/** 统一回登录页；有凭证则带上 dataToken，供登录页 onLoad 处理 */
+function redirectToMiniProgramLogin(dataToken) {
+  const url = dataToken
+    ? `${MINI_LOGIN_PATH}?dataToken=${encodeURIComponent(dataToken)}`
+    : MINI_LOGIN_PATH
+  return miniProgramGo(url)
 }
 
 onMounted(async () => {
@@ -129,23 +81,23 @@ onMounted(async () => {
     console.error(error)
   }
 
-  // 回调参数以 dataToken 为准；兼容部分渠道使用 token
   token.value =
     queryParams.value.get('dataToken') || queryParams.value.get('token') || ''
 
+  if (isInMiniProgram()) {
+    if (redirectToMiniProgramLogin(token.value)) {
+      status.value = '正在返回小程序登录页...'
+      return
+    }
+    status.value = '跳转失败，请关闭页面后重试。'
+    return
+  }
+
   if (!token.value) {
     status.value = '未收到 dataToken。'
-    if (isInMiniProgram()) {
-      redirectToMiniProgramLogin()
-    }
-    return
+  } else {
+    status.value = '已接收凭证。当前不在小程序环境，请手动返回小程序。'
   }
-
-  if (isInMiniProgram() && redirectToMiniProgramHome(token.value)) {
-    return
-  }
-
-  status.value = '已接收凭证。当前不在小程序环境，请手动返回小程序。'
 })
 </script>
 
